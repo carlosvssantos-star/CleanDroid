@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">CleanDroid</string>
+    <string name="acc_desc">Usado apenas para clicar em \"Limpar cache\" durante a limpeza guiada iniciada por você. Nada é clicado sem sua ação.</string>
+</resources>

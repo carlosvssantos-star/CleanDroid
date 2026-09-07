@@ -1,0 +1,2 @@
+-keep class com.cleandroid.maintainer.** { *; }
+-dontwarn com.google.android.play.**

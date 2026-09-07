@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Mantém Material You escuro automático; apenas reforça superfícies -->
+    <style name="Theme.CleanDroid" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="colorPrimary">@android:color/holo_blue_light</item>
+    </style>
+</resources>

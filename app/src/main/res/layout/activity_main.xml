@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:padding="16dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="CleanDroid — Limpeza e Manutenção"
+            android:textSize="20sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="Multi-versão API 21–35. Sem root: limpeza segura em áreas acessíveis."
+            android:textSize="13sp" />
+
+        <Button android:id="@+id/btnScan" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="1. Varrer lixo" />
+        <Button android:id="@+id/btnClean" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="2. Limpar selecionado" />
+        <Button android:id="@+id/btnDuplicates" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Duplicados (hash)" />
+        <Button android:id="@+id/btnWhats" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Lixo do WhatsApp" />
+        <Button android:id="@+id/btnBoost" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Boost RAM / CPU" />
+        <Button android:id="@+id/btnApps" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Gestão de apps" />
+        <Button android:id="@+id/btnUpdates" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Atualizar apps (Play)" />
+        <Button android:id="@+id/btnBattery" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Bateria" />
+        <Button android:id="@+id/btnDiag" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Diagnóstico" />
+        <Button android:id="@+id/btnAllFiles" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Permissão total (Android 11+)" />
+        <Button android:id="@+id/btnDeep" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:text="Limpeza profunda (Shizuku/guiada)" />
+        <Button android:id="@+id/btnSchedule" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Agendar varredura semanal" />
+        <Button android:id="@+id/btnReport" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Exportar relatório .txt" />
+
+        <TextView
+            android:id="@+id/txtStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:fontFamily="monospace"
+            android:text="Pronto."
+            android:textSize="13sp" />
+    </LinearLayout>
+</ScrollView>

@@ -1,0 +1,12 @@
+# Gradle / Android — não commitar
+local.properties
+.gradle/
+build/
+app/build/
+*.iml
+.DS_Store
+
+# Assinatura — nunca commitar keystore/senhas
+*.jks
+*.keystore
+keystore.properties
