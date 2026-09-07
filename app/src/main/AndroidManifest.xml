@@ -36,7 +36,7 @@
 
     <!-- Mantém minSdk 21: Shizuku só executa via reflection quando instalado (API 23+),
          em aparelhos 5.x o código nunca é chamado. -->
-    <uses-sdk tools:overrideLibrary="rikka.shizuku.provider, moe.shizuku.privileged.api" />
+    <uses-sdk tools:overrideLibrary="rikka.shizuku, rikka.shizuku.api, rikka.shizuku.provider, moe.shizuku.privileged.api" />
 
     <application
         android:name=".App"
