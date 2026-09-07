@@ -217,7 +217,7 @@ class MainActivity : AppCompatActivity() {
                     sb.append("\nTop processos:\n")
                     top.take(5).forEach { sb.append("• ${it.name} — ${it.pssKb / 1024} MB (${it.importance})\n") }
                 }
-                if (res != null) sb.append("\nBoost: ${\"${res.killed}\"} 2º plano encerrados, +${res.freedMb} MB livres.")
+                if (res != null) sb.append("\nBoost: ${res.killed} em 2º plano encerrados, +${res.freedMb} MB livres.")
                 sb.append("\n\nNota: Android gerencia RAM sozinho; boost ajuda pontualmente, não faz milagre.")
                 updateStatus(sb.toString())
             }
