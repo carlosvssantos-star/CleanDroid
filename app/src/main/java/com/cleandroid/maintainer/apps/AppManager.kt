@@ -55,7 +55,8 @@ class AppManager(private val ctx: Context) {
         return try {
             if (Build.VERSION.SDK_INT >= 26) {
                 val ssm = ctx.getSystemService(Context.STORAGE_STATS_SERVICE) as StorageStatsManager
-                val uuid = ssm.getUuidForPath(java.io.File(ai.sourceDir))
+                val sm = ctx.getSystemService(Context.STORAGE_SERVICE) as android.os.storage.StorageManager
+                val uuid = sm.getUuidForPath(java.io.File(ai.sourceDir))
                 // queryStatsForPackage pode exigir permissão; captura exceção
                 ssm.queryStatsForPackage(uuid, ai.packageName, android.os.Process.myUserHandle()).let {
                     it.appBytes + it.cacheBytes + it.dataBytes

@@ -37,18 +37,18 @@ class JunkScanner(private val ctx: Context) {
     ): ScanResult {
         val t0 = System.currentTimeMillis()
         val items = mutableListOf<JunkItem>()
-        var visited = 0
 
         // 1) Cache próprio (sempre permitido)
         items += ownCache()
 
         // 2) Raízes acessíveis
         val roots = accessibleRoots()
+        val counter = Counter()
         for (root in roots) {
             walk(root, 0, object : Progress {
                 override fun onDir(path: String, count: Int) { progress?.onDir(path, count) }
-            }, items, includeWhatsApp, Counter { visited })
-            if (visited >= maxFilesPerScan) break
+            }, items, includeWhatsApp, counter)
+            if (counter.n >= maxFilesPerScan) break
         }
 
         // 3) Rastros de desinstalação: pastas cujo pacote não existe mais
