@@ -1,10 +1,14 @@
 package com.cleandroid.maintainer
 
 import android.content.pm.PackageManager
+import android.graphics.Typeface
 import android.os.Build
 import android.os.Bundle
+import android.view.Gravity
 import android.view.View
+import android.widget.Button
 import android.widget.CheckBox
+import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
@@ -17,7 +21,9 @@ import com.cleandroid.maintainer.battery.BatteryMonitor
 import com.cleandroid.maintainer.cleaner.DeepCleanOrchestrator
 import com.cleandroid.maintainer.cleaner.DuplicateFinder
 import com.cleandroid.maintainer.cleaner.JunkScanner
+import com.cleandroid.maintainer.cleaner.StorageAnalyzer
 import com.cleandroid.maintainer.cleaner.WhatsAppCleaner
+import com.cleandroid.maintainer.core.CleanHistory
 import com.cleandroid.maintainer.core.JunkCategory
 import com.cleandroid.maintainer.core.JunkItem
 import com.cleandroid.maintainer.core.PermissionHelper
@@ -27,15 +33,15 @@ import com.cleandroid.maintainer.core.VersionCompat
 import com.cleandroid.maintainer.core.formatBytes
 import com.cleandroid.maintainer.diagnostics.DiagnosticRunner
 import com.cleandroid.maintainer.work.ScheduledCleanWorker
+import com.google.android.material.color.DynamicColors
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * CleanDroid v2 — simples e seguro.
- * Fluxo: Varrer → ver resumo por categoria → marcar o que quer → Limpar (com explicação).
- * Categorias arriscadas (⚠️) vêm desmarcadas e pedem confirmação extra.
+ * CleanDroid v3 — dashboard + resultados por categoria + histórico.
+ * Fluxo: Varrer → ver por categoria (ⓘ explica, Limpar age só nela) → Limpar tudo.
  */
 class MainActivity : AppCompatActivity() {
 
@@ -54,6 +60,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        runCatching { DynamicColors.applyToActivityIfAvailable(this) }
         setContentView(R.layout.activity_main)
 
         scanner = JunkScanner(this)
@@ -64,11 +71,14 @@ class MainActivity : AppCompatActivity() {
 
         requestInitialPermissions()
         refreshLevel()
+        refreshDashboard()
+        maybeOnboarding()
 
         onClick(R.id.btnScan) { runScan() }
-        onClick(R.id.btnClean) { confirmAndClean() }
+        onClick(R.id.btnClean) { confirmAndClean(selectedItems()) }
         onClick(R.id.btnDuplicates) { runDuplicates() }
         onClick(R.id.btnWhats) { runWhats() }
+        onClick(R.id.btnLarge) { runLargeFiles() }
         onClick(R.id.btnDeep) { runDeepClean() }
         onClick(R.id.btnBattery) { showBattery() }
         onClick(R.id.btnDiag) { runDiag() }
@@ -85,6 +95,8 @@ class MainActivity : AppCompatActivity() {
     private fun onClick(id: Int, fn: () -> Unit) =
         findViewById<View>(id).setOnClickListener { fn() }
 
+    // ---------- Dashboard ----------
+
     private fun refreshLevel() {
         lifecycleScope.launch(Dispatchers.IO) {
             val desc = PrivilegeManager.describe()
@@ -92,6 +104,35 @@ class MainActivity : AppCompatActivity() {
                 findViewById<TextView>(R.id.txtLevel).text = desc
             }
         }
+    }
+
+    private fun refreshDashboard() {
+        lifecycleScope.launch(Dispatchers.IO) {
+            val sum = StorageAnalyzer.summary()
+            val last = CleanHistory.lastLabel(this@MainActivity)
+            val total = CleanHistory.totalFreed(this@MainActivity)
+            withContext(Dispatchers.Main) {
+                if (sum.total > 0) {
+                    findViewById<TextView>(R.id.txtStorage).text =
+                        "Armazenamento: ${formatBytes(sum.free)} livres de ${formatBytes(sum.total)}"
+                    findViewById<ProgressBar>(R.id.storageBar).progress = sum.usedPct
+                } else {
+                    findViewById<TextView>(R.id.txtStorage).text = "Armazenamento: —"
+                }
+                findViewById<TextView>(R.id.txtLastClean).text =
+                    if (total > 0) "$last\nTotal já liberado: ${formatBytes(total)}" else last
+            }
+        }
+    }
+
+    private fun maybeOnboarding() {
+        if (!CleanHistory.isFirstRun(this)) return
+        MaterialAlertDialogBuilder(this)
+            .setTitle("👋 Bem-vindo ao CleanDroid")
+            .setMessage("3 passos:\n\n1️⃣ Toque em VARRER AGORA\n2️⃣ Veja o resultado por categoria (ⓘ explica cada uma)\n3️⃣ Toque em LIMPAR\n\n✅ = seguro • ⚠️ = confira antes\nNada apaga sem sua confirmação.")
+            .setPositiveButton("Começar") { _, _ -> CleanHistory.markFirstDone(this) }
+            .setCancelable(false)
+            .show()
     }
 
     // ---------- Varredura ----------
@@ -112,27 +153,68 @@ class MainActivity : AppCompatActivity() {
             withContext(Dispatchers.Main) {
                 showProgress(false)
                 if (res.items.isEmpty()) {
+                    findViewById<View>(R.id.cardResult).visibility = View.GONE
                     updateStatus("✨ Nada para limpar — sistema já enxuto.")
                     return@withContext
                 }
-                updateStatus(summaryText(res.items))
-                toast("Achado ~${formatBytes(res.totalBytes)}. Confira e toque em Limpar.")
+                renderCategories(res.items)
+                updateStatus("Achado ~${formatBytes(res.totalBytes)} em ${res.items.size} itens.\n" +
+                        "Toque em ⓘ para entender ou LIMPAR para remover os marcados.")
+                toast("Achado ~${formatBytes(res.totalBytes)}")
             }
         }
     }
 
-    private fun summaryText(items: List<JunkItem>): String {
-        val sb = StringBuilder("Achado ~${formatBytes(items.sumOf { it.sizeBytes })}:\n\n")
-        for ((cat, list) in items.groupBy { it.category }
-            .entries.sortedByDescending { it.value.sumOf { i -> i.sizeBytes } }) {
+    /** Monta as linhas por categoria: ⓘ explica, "Limpar" age só nela. */
+    private fun renderCategories(items: List<JunkItem>) {
+        val box = findViewById<LinearLayout>(R.id.categoryList)
+        box.removeAllViews()
+        val groups = items.groupBy { it.category }
+            .entries.sortedByDescending { it.value.sumOf { i -> i.sizeBytes } }
+        for ((cat, list) in groups) {
             val mark = if (cat.safe) "✅" else "⚠️"
-            sb.append("$mark ${cat.title}: ${list.size} (${formatBytes(list.sumOf { it.sizeBytes })})\n")
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(0, 10, 0, 10)
+            }
+            val info = Button(this, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
+                text = "ⓘ"
+                setOnClickListener {
+                    MaterialAlertDialogBuilder(this@MainActivity)
+                        .setTitle("$mark ${cat.title}")
+                        .setMessage("${cat.desc}\n\n${list.size} itens • ${formatBytes(list.sumOf { it.sizeBytes })}")
+                        .setPositiveButton("Entendi", null)
+                        .show()
+                }
+            }
+            val label = TextView(this).apply {
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                text = "$mark ${cat.title}\n${list.size} itens • ${formatBytes(list.sumOf { it.sizeBytes })}"
+                textSize = 14f
+                setPadding(12, 0, 12, 0)
+            }
+            val cleanOne = Button(this, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
+                text = "Limpar"
+                setOnClickListener { confirmAndClean(list) }
+            }
+            row.addView(info, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+            row.addView(label)
+            row.addView(cleanOne, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+            box.addView(row)
+            // divisor simples
+            box.addView(View(this).apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, 1)
+                alpha = 0.15f
+                setBackgroundColor(0xFF888888.toInt())
+            })
         }
-        sb.append("\nDesmarque no card 'O que limpar' o que não quiser apagar.")
-        return sb.toString()
+        findViewById<View>(R.id.cardResult).visibility = View.VISIBLE
     }
 
-    /** Filtra o scan completo pelas caixas marcadas na tela. */
     private fun selectedItems(): List<JunkItem> {
         val temp = checked(R.id.cbTemp)
         val org = checked(R.id.cbOrganizar)
@@ -144,7 +226,7 @@ class MainActivity : AppCompatActivity() {
                 JunkCategory.EMPTY_FOLDERS, JunkCategory.HIDDEN_TRASH, JunkCategory.UNINSTALL_TRACES -> org
                 JunkCategory.WHATSAPP_JUNK -> wa
                 JunkCategory.DOWNLOADS_LARGE -> dl
-                JunkCategory.DUPLICATES -> true // duplicados entram pelo próprio fluxo
+                JunkCategory.DUPLICATES -> true
             }
         }
     }
@@ -154,15 +236,14 @@ class MainActivity : AppCompatActivity() {
 
     // ---------- Limpeza ----------
 
-    private fun confirmAndClean() {
-        val items = selectedItems()
+    private fun confirmAndClean(items: List<JunkItem>) {
         if (items.isEmpty()) { toast("Varra primeiro ou marque algo em 'O que limpar'"); return }
         val risky = items.groupBy { it.category }.keys.filter { !it.safe }
         val sb = StringBuilder("Apagar ${items.size} itens (${formatBytes(items.sumOf { it.sizeBytes })})?\n\n")
         for ((cat, list) in items.groupBy { it.category }) {
             sb.append("• ${cat.title} (${list.size})\n  ${cat.desc}\n\n")
         }
-        if (risky.isNotEmpty()) sb.append("⚠️ Inclui categorias sensíveis. Confira a lista com calma.\n")
+        if (risky.isNotEmpty()) sb.append("⚠️ Inclui categorias sensíveis. Confira com calma.\n")
         sb.append("Não pode ser desfeito.")
         MaterialAlertDialogBuilder(this)
             .setTitle("Confirmar limpeza")
@@ -185,10 +266,14 @@ class MainActivity : AppCompatActivity() {
             withContext(Dispatchers.Main) {
                 showProgress(false)
                 fullScan = fullScan - items.toSet()
-                updateStatus("✅ Limpeza concluída: $ok removidos" +
+                if (fullScan.isEmpty()) findViewById<View>(R.id.cardResult).visibility = View.GONE
+                else renderCategories(fullScan)
+                CleanHistory.record(this@MainActivity, freed, ok)
+                refreshDashboard()
+                updateStatus("✅ $ok removidos" +
                         (if (fail > 0) ", $fail sem acesso" else "") +
-                        ".\nLiberado ~${formatBytes(freed)}." +
-                        (if (fail > 0) "\nDica: a Limpeza profunda (root) alcança o restante." else ""))
+                        " • Liberado ~${formatBytes(freed)}." +
+                        (if (fail > 0) "\nDica: a Limpeza profunda alcança o restante." else ""))
             }
         }
     }
@@ -209,13 +294,9 @@ class MainActivity : AppCompatActivity() {
             withContext(Dispatchers.Main) {
                 showProgress(false)
                 if (groups.isEmpty()) { updateStatus("Nenhum duplicado encontrado."); return@withContext }
-                val sb = StringBuilder("📑 ${groups.size} grupos, ~${formatBytes(groups.sumOf { it.wastedBytes() })} repetidos.\n" +
-                        "Mantemos sempre 1 cópia.\n\n")
-                groups.take(12).forEach { g ->
-                    sb.append("• ${formatBytes(g.size)} ×${g.files.size}: ${g.files.first().name}\n")
-                }
-                sb.append("\nToque em LIMPAR para apagar as cópias extras.")
-                updateStatus(sb.toString())
+                renderCategories(fullScan)
+                updateStatus("📑 ${groups.size} grupos, ~${formatBytes(groups.sumOf { it.wastedBytes() })} repetidos.\n" +
+                        "Mantemos sempre 1 cópia. Toque em LIMPAR.")
             }
         }
     }
@@ -238,13 +319,38 @@ class MainActivity : AppCompatActivity() {
                     withContext(Dispatchers.Main) {
                         showProgress(false)
                         findViewById<CheckBox>(R.id.cbWhats).isChecked = items.isNotEmpty()
+                        if (items.isNotEmpty()) renderCategories(fullScan)
                         updateStatus("💬 WhatsApp: ${items.size} itens (${formatBytes(items.sumOf { it.sizeBytes })}).\n" +
-                                "Marque a caixa do WhatsApp e toque em LIMPAR.")
+                                "Confira e toque em LIMPAR.")
                     }
                 }
             }
             .setNegativeButton("Cancelar", null)
             .show()
+    }
+
+    private fun runLargeFiles() {
+        showProgress(true, "Procurando arquivos grandes (+50 MB)...")
+        lifecycleScope.launch(Dispatchers.IO) {
+            val big = StorageAnalyzer.largestFiles()
+            withContext(Dispatchers.Main) {
+                showProgress(false)
+                if (big.isEmpty()) { updateStatus("Nenhum arquivo acima de 50 MB. 🎉"); return@withContext }
+                val names = big.map { "${it.file.name}\n${formatBytes(it.size)} • ${it.file.parent}" }.toTypedArray()
+                val sel = BooleanArray(big.size)
+                MaterialAlertDialogBuilder(this@MainActivity)
+                    .setTitle("📦 Maiores arquivos (marque p/ apagar)")
+                    .setMultiChoiceItems(names, sel) { _, which, v -> sel[which] = v }
+                    .setPositiveButton("Apagar marcados") { _, _ ->
+                        val targets = big.filterIndexed { i, _ -> sel[i] }
+                        confirmAndClean(targets.map {
+                            JunkItem(it.file.absolutePath, it.file.name, it.size, JunkCategory.DOWNLOADS_LARGE)
+                        })
+                    }
+                    .setNegativeButton("Cancelar", null)
+                    .show()
+            }
+        }
     }
 
     private fun runDeepClean() {
@@ -256,7 +362,7 @@ class MainActivity : AppCompatActivity() {
                     .setTitle("🚀 Limpeza profunda")
                     .setMessage("$desc\n\nLimpa o cache de TODOS os apps de uma vez.\n" +
                             "• Com root: automático e total.\n" +
-                            "• Sem root: abre a tela de cada app para você confirmar (até 15 por vez).")
+                            "• Sem root: abre a tela de cada app para confirmar (até 15 por vez).")
                     .setPositiveButton("Iniciar") { _, _ ->
                         DeepCleanOrchestrator.start(this@MainActivity, pkgs)
                     }

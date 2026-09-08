@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Material You: cores dinâmicas do papel de parede no Android 12+ -->
+    <style name="Theme.CleanDroid" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="android:dynamicColorThemeOverlay">@android:style/ThemeOverlay.Material.DynamicColors.DayNight</item>
+    </style>
+</resources>
