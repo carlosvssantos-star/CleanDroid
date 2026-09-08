@@ -51,7 +51,6 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.3")
     implementation("androidx.work:work-runtime-ktx:2.9.0")
     implementation("androidx.documentfile:documentfile:1.0.1")
-    implementation("com.google.android.play:app-update-ktx:2.1.0")
     implementation("androidx.activity:activity-ktx:1.9.1")
     // Limpeza profunda opcional via Shizuku (sem root). App funciona sem ele.
     implementation("dev.rikka.shizuku:api:13.1.5")

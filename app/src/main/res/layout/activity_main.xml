@@ -1,49 +1,163 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:padding="16dp">
+    android:background="?attr/colorSurfaceVariant"
+    android:padding="12dp">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical">
 
-        <TextView
+        <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="CleanDroid — Limpeza e Manutenção"
-            android:textSize="20sp"
-            android:textStyle="bold" />
+            android:layout_marginBottom="12dp"
+            app:cardCornerRadius="16dp"
+            app:cardElevation="2dp">
 
-        <TextView
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="🧹 CleanDroid"
+                    android:textSize="22sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/txtLevel"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:text="Verificando acesso..."
+                    android:textSize="13sp" />
+
+                <ProgressBar
+                    android:id="@+id/progressBar"
+                    style="?android:attr/progressBarStyleHorizontal"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:visibility="gone" />
+
+                <TextView
+                    android:id="@+id/txtStatus"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="Toque em Varrer agora para começar."
+                    android:textSize="14sp" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnScan"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:text="🔍 Varrer agora"
+                    app:cornerRadius="12dp" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnClean"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="🧺 Limpar selecionados"
+                    app:cornerRadius="12dp"
+                    style="?attr/materialButtonOutlinedStyle" />
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:text="Multi-versão API 21–35. Sem root: limpeza segura em áreas acessíveis."
-            android:textSize="13sp" />
+            android:layout_marginBottom="12dp"
+            app:cardCornerRadius="16dp"
+            app:cardElevation="2dp">
 
-        <Button android:id="@+id/btnScan" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="1. Varrer lixo" />
-        <Button android:id="@+id/btnClean" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="2. Limpar selecionado" />
-        <Button android:id="@+id/btnDuplicates" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Duplicados (hash)" />
-        <Button android:id="@+id/btnWhats" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Lixo do WhatsApp" />
-        <Button android:id="@+id/btnBoost" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Boost RAM / CPU" />
-        <Button android:id="@+id/btnApps" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Gestão de apps" />
-        <Button android:id="@+id/btnUpdates" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Atualizar apps (Play)" />
-        <Button android:id="@+id/btnBattery" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Bateria" />
-        <Button android:id="@+id/btnDiag" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Diagnóstico" />
-        <Button android:id="@+id/btnAllFiles" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Permissão total (Android 11+)" />
-        <Button android:id="@+id/btnDeep" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:text="Limpeza profunda (Shizuku/guiada)" />
-        <Button android:id="@+id/btnSchedule" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Agendar varredura semanal" />
-        <Button android:id="@+id/btnReport" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Exportar relatório .txt" />
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
 
-        <TextView
-            android:id="@+id/txtStatus"
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="O que limpar"
+                    android:textSize="16sp"
+                    android:textStyle="bold" />
+
+                <CheckBox
+                    android:id="@+id/cbTemp"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:checked="true"
+                    android:text="✅ Temporários e instaladores (seguro)" />
+
+                <CheckBox
+                    android:id="@+id/cbOrganizar"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:checked="true"
+                    android:text="✅ Pastas vazias, lixo oculto e restos (seguro)" />
+
+                <CheckBox
+                    android:id="@+id/cbWhats"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="⚠️ WhatsApp (só o que você marcou)" />
+
+                <CheckBox
+                    android:id="@+id/cbDownloads"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="⚠️ Downloads grandes e antigos" />
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:fontFamily="monospace"
-            android:text="Pronto."
-            android:textSize="13sp" />
+            app:cardCornerRadius="16dp"
+            app:cardElevation="2dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Ferramentas"
+                    android:textSize="16sp"
+                    android:textStyle="bold" />
+
+                <GridLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:columnCount="2"
+                    android:useDefaultMargins="true">
+
+                    <Button android:id="@+id/btnWhats" android:layout_width="0dp" android:layout_columnWeight="1" android:layout_gravity="fill" android:text="💬 WhatsApp" style="?attr/materialButtonOutlinedStyle" />
+                    <Button android:id="@+id/btnDuplicates" android:layout_width="0dp" android:layout_columnWeight="1" android:layout_gravity="fill" android:text="📑 Duplicados" style="?attr/materialButtonOutlinedStyle" />
+                    <Button android:id="@+id/btnDeep" android:layout_width="0dp" android:layout_columnWeight="1" android:layout_gravity="fill" android:text="🚀 Limpeza profunda" style="?attr/materialButtonOutlinedStyle" />
+                    <Button android:id="@+id/btnBattery" android:layout_width="0dp" android:layout_columnWeight="1" android:layout_gravity="fill" android:text="🔋 Bateria" style="?attr/materialButtonOutlinedStyle" />
+                    <Button android:id="@+id/btnDiag" android:layout_width="0dp" android:layout_columnWeight="1" android:layout_gravity="fill" android:text="🩺 Diagnóstico" style="?attr/materialButtonOutlinedStyle" />
+                    <Button android:id="@+id/btnReport" android:layout_width="0dp" android:layout_columnWeight="1" android:layout_gravity="fill" android:text="📄 Relatório" style="?attr/materialButtonOutlinedStyle" />
+                    <Button android:id="@+id/btnSchedule" android:layout_width="0dp" android:layout_columnWeight="1" android:layout_gravity="fill" android:text="⏰ Agendar" style="?attr/materialButtonOutlinedStyle" />
+                    <Button android:id="@+id/btnAllFiles" android:layout_width="0dp" android:layout_columnWeight="1" android:layout_gravity="fill" android:text="📁 Acesso total" style="?attr/materialButtonOutlinedStyle" />
+                </GridLayout>
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
     </LinearLayout>
 </ScrollView>

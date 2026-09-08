@@ -10,3 +10,7 @@ app/build/
 *.jks
 *.keystore
 keystore.properties
+
+# APKs locais (baixados do Actions, não versionar)
+apk/
+*.apk

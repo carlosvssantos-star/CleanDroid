@@ -1,30 +1,31 @@
 package com.cleandroid.maintainer
 
-import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.view.View
+import android.widget.CheckBox
+import android.widget.ProgressBar
+import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
-import com.cleandroid.maintainer.apps.AppManager
-import com.cleandroid.maintainer.apps.AppUpdateHelper
 import com.cleandroid.maintainer.battery.BatteryMonitor
 import com.cleandroid.maintainer.cleaner.DeepCleanOrchestrator
 import com.cleandroid.maintainer.cleaner.DuplicateFinder
 import com.cleandroid.maintainer.cleaner.JunkScanner
 import com.cleandroid.maintainer.cleaner.WhatsAppCleaner
+import com.cleandroid.maintainer.core.JunkCategory
 import com.cleandroid.maintainer.core.JunkItem
 import com.cleandroid.maintainer.core.PermissionHelper
+import com.cleandroid.maintainer.core.PrivilegeManager
 import com.cleandroid.maintainer.core.ReportExporter
-import com.cleandroid.maintainer.core.ShizukuHelper
 import com.cleandroid.maintainer.core.VersionCompat
 import com.cleandroid.maintainer.core.formatBytes
 import com.cleandroid.maintainer.diagnostics.DiagnosticRunner
-import com.cleandroid.maintainer.optimizer.RamCpuMonitor
 import com.cleandroid.maintainer.work.ScheduledCleanWorker
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import kotlinx.coroutines.Dispatchers
@@ -32,19 +33,17 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * Tela principal simples (sem ViewBinding complexo para máxima compatibilidade).
- * Usa layout activity_main.xml com botões por módulo.
- * Toda operação pesada roda em Dispatchers.IO.
+ * CleanDroid v2 — simples e seguro.
+ * Fluxo: Varrer → ver resumo por categoria → marcar o que quer → Limpar (com explicação).
+ * Categorias arriscadas (⚠️) vêm desmarcadas e pedem confirmação extra.
  */
 class MainActivity : AppCompatActivity() {
 
     private lateinit var scanner: JunkScanner
-    private lateinit var ramCpu: RamCpuMonitor
-    private lateinit var appManager: AppManager
     private lateinit var battery: BatteryMonitor
     private lateinit var diagnostics: DiagnosticRunner
 
-    private var lastScan: List<JunkItem> = emptyList()
+    private var fullScan: List<JunkItem> = emptyList()
 
     private val permLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -58,144 +57,189 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         scanner = JunkScanner(this)
-        ramCpu = RamCpuMonitor(this)
-        appManager = AppManager(this)
         battery = BatteryMonitor(this)
         diagnostics = DiagnosticRunner(this)
 
-        title = "CleanDroid • ${VersionCompat.label()}"
+        title = "CleanDroid"
 
         requestInitialPermissions()
-        AppUpdateHelper.checkSelfUpdate(this)
+        refreshLevel()
 
-        findViewById<android.view.View>(R.id.btnScan).setOnClickListener { runScan() }
-        findViewById<android.view.View>(R.id.btnClean).setOnClickListener { confirmAndClean() }
-        findViewById<android.view.View>(R.id.btnDuplicates).setOnClickListener { runDuplicates() }
-        findViewById<android.view.View>(R.id.btnWhats).setOnClickListener { runWhats() }
-        findViewById<android.view.View>(R.id.btnBoost).setOnClickListener { runBoost() }
-        findViewById<android.view.View>(R.id.btnBattery).setOnClickListener { showBattery() }
-        findViewById<android.view.View>(R.id.btnDiag).setOnClickListener { runDiag() }
-        findViewById<android.view.View>(R.id.btnApps).setOnClickListener { showApps() }
-        findViewById<android.view.View>(R.id.btnUpdates).setOnClickListener {
-            if (!AppUpdateHelper.openPlayUpdates(this)) toast("Não foi possível abrir a Play Store")
-        }
-        findViewById<android.view.View>(R.id.btnAllFiles).setOnClickListener {
+        onClick(R.id.btnScan) { runScan() }
+        onClick(R.id.btnClean) { confirmAndClean() }
+        onClick(R.id.btnDuplicates) { runDuplicates() }
+        onClick(R.id.btnWhats) { runWhats() }
+        onClick(R.id.btnDeep) { runDeepClean() }
+        onClick(R.id.btnBattery) { showBattery() }
+        onClick(R.id.btnDiag) { runDiag() }
+        onClick(R.id.btnReport) { exportReport() }
+        onClick(R.id.btnSchedule) { toggleSchedule() }
+        onClick(R.id.btnAllFiles) {
             try { startActivity(PermissionHelper.intentAllFilesAccess()) }
             catch (_: Exception) { toast("Tela indisponível neste aparelho") }
         }
-        findViewById<android.view.View>(R.id.btnDeep).setOnClickListener { runDeepClean() }
-        findViewById<android.view.View>(R.id.btnSchedule).setOnClickListener { toggleSchedule() }
-        findViewById<android.view.View>(R.id.btnReport).setOnClickListener { exportReport() }
 
-        updateStatus("Pronto. Toque em Varrer para começar.\n${VersionCompat.label()}")
+        updateStatus("Toque em Varrer agora para começar.\n${VersionCompat.label()}")
     }
 
-    private fun requestInitialPermissions() {
-        val needed = PermissionHelper.storagePermissions().filter {
-            ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
-        }.toTypedArray()
-        if (needed.isNotEmpty()) {
-            // API 23+ pede runtime; abaixo disso é install-time
-            if (Build.VERSION.SDK_INT >= 23) permLauncher.launch(needed)
-        }
-        if (VersionCompat.needsAllFilesAccess() && !PermissionHelper.hasAllFilesAccess()) {
-            MaterialAlertDialogBuilder(this)
-                .setTitle("Acesso total opcional")
-                .setMessage("No Android 11+, a limpeza profunda de APKs soltos, pastas vazias e lixo oculto precisa de 'Acesso a todos os arquivos'. Sem isso o app limpa só o próprio cache + áreas públicas. Deseja abrir a tela agora?")
-                .setPositiveButton("Abrir") { _, _ ->
-                    try { startActivity(PermissionHelper.intentAllFilesAccess()) } catch (_: Exception) {}
-                }
-                .setNegativeButton("Depois", null)
-                .show()
-        }
-    }
+    private fun onClick(id: Int, fn: () -> Unit) =
+        findViewById<View>(id).setOnClickListener { fn() }
 
-    private fun runScan() {
-        updateStatus("Varrendo... (pode levar 30-60s)")
+    private fun refreshLevel() {
         lifecycleScope.launch(Dispatchers.IO) {
-            val res = scanner.scan(progress = object : JunkScanner.Progress {
-                override fun onDir(path: String, count: Int) {
-                    if (count % 2000 == 0) {
-                        lifecycleScope.launch(Dispatchers.Main) { updateStatus("Varrendo...\n$path\n$count arquivos") }
-                    }
-                }
-            })
-            lastScan = res.items
+            val desc = PrivilegeManager.describe()
             withContext(Dispatchers.Main) {
-                val byCat = res.byCategory().entries.sortedByDescending { it.value.sumOf { i -> i.sizeBytes } }
-                val sb = StringBuilder()
-                sb.append("Achado: ${formatBytes(res.totalBytes)} em ${res.items.size} itens (${res.durationMs}ms)\n\n")
-                for ((cat, list) in byCat) {
-                    sb.append("• ${cat.title}: ${list.size} itens (${formatBytes(list.sumOf { it.sizeBytes })})\n")
-                }
-                sb.append("\nToque LIMPAR para remover (com confirmação). Duplicados têm botão próprio.")
-                updateStatus(sb.toString())
-                if (res.items.isEmpty()) toast("Nada para limpar — sistema já enxuto")
+                findViewById<TextView>(R.id.txtLevel).text = desc
             }
         }
     }
 
+    // ---------- Varredura ----------
+
+    private fun runScan() {
+        showProgress(true, "Varrendo... (leva uns segundos)")
+        lifecycleScope.launch(Dispatchers.IO) {
+            val res = scanner.scan(progress = object : JunkScanner.Progress {
+                override fun onDir(path: String, count: Int) {
+                    if (count % 3000 == 0) {
+                        lifecycleScope.launch(Dispatchers.Main) {
+                            updateStatus("Varrendo... $count arquivos\n$path")
+                        }
+                    }
+                }
+            })
+            fullScan = res.items
+            withContext(Dispatchers.Main) {
+                showProgress(false)
+                if (res.items.isEmpty()) {
+                    updateStatus("✨ Nada para limpar — sistema já enxuto.")
+                    return@withContext
+                }
+                updateStatus(summaryText(res.items))
+                toast("Achado ~${formatBytes(res.totalBytes)}. Confira e toque em Limpar.")
+            }
+        }
+    }
+
+    private fun summaryText(items: List<JunkItem>): String {
+        val sb = StringBuilder("Achado ~${formatBytes(items.sumOf { it.sizeBytes })}:\n\n")
+        for ((cat, list) in items.groupBy { it.category }
+            .entries.sortedByDescending { it.value.sumOf { i -> i.sizeBytes } }) {
+            val mark = if (cat.safe) "✅" else "⚠️"
+            sb.append("$mark ${cat.title}: ${list.size} (${formatBytes(list.sumOf { it.sizeBytes })})\n")
+        }
+        sb.append("\nDesmarque no card 'O que limpar' o que não quiser apagar.")
+        return sb.toString()
+    }
+
+    /** Filtra o scan completo pelas caixas marcadas na tela. */
+    private fun selectedItems(): List<JunkItem> {
+        val temp = checked(R.id.cbTemp)
+        val org = checked(R.id.cbOrganizar)
+        val wa = checked(R.id.cbWhats)
+        val dl = checked(R.id.cbDownloads)
+        return fullScan.filter {
+            when (it.category) {
+                JunkCategory.APP_CACHE, JunkCategory.RESIDUAL_APK, JunkCategory.TEMP_FILES -> temp
+                JunkCategory.EMPTY_FOLDERS, JunkCategory.HIDDEN_TRASH, JunkCategory.UNINSTALL_TRACES -> org
+                JunkCategory.WHATSAPP_JUNK -> wa
+                JunkCategory.DOWNLOADS_LARGE -> dl
+                JunkCategory.DUPLICATES -> true // duplicados entram pelo próprio fluxo
+            }
+        }
+    }
+
+    private fun checked(id: Int): Boolean =
+        findViewById<CheckBox>(id).isChecked
+
+    // ---------- Limpeza ----------
+
     private fun confirmAndClean() {
-        if (lastScan.isEmpty()) { toast("Varra primeiro"); return }
-        val total = lastScan.sumOf { it.sizeBytes }
-        // Segurança: pastas vazias (0 bytes) e itens críticos pedem atenção
+        val items = selectedItems()
+        if (items.isEmpty()) { toast("Varra primeiro ou marque algo em 'O que limpar'"); return }
+        val risky = items.groupBy { it.category }.keys.filter { !it.safe }
+        val sb = StringBuilder("Apagar ${items.size} itens (${formatBytes(items.sumOf { it.sizeBytes })})?\n\n")
+        for ((cat, list) in items.groupBy { it.category }) {
+            sb.append("• ${cat.title} (${list.size})\n  ${cat.desc}\n\n")
+        }
+        if (risky.isNotEmpty()) sb.append("⚠️ Inclui categorias sensíveis. Confira a lista com calma.\n")
+        sb.append("Não pode ser desfeito.")
         MaterialAlertDialogBuilder(this)
-            .setTitle("Apagar ${lastScan.size} itens (${formatBytes(total)})?")
-            .setMessage("Itens incluem APKs soltos, temporários, pastas vazias, lixo oculto e rastros. WhatsApp sensível e backups NÃO entram aqui (use botão WhatsApp). Esta ação não pode ser desfeita.")
-            .setPositiveButton("Limpar") { _, _ -> doClean(lastScan) }
-            .setNegativeButton("Cancelar", null)
+            .setTitle("Confirmar limpeza")
+            .setMessage(sb.toString())
+            .setPositiveButton("Limpar") { _, _ -> doClean(items) }
+            .setNegativeButton("Revisar", null)
             .show()
     }
 
     private fun doClean(items: List<JunkItem>) {
+        showProgress(true, "Limpando...")
         lifecycleScope.launch(Dispatchers.IO) {
+            val rooted = PrivilegeManager.hasRoot()
             var ok = 0; var fail = 0; var freed = 0L
             for (it in items) {
-                if (scanner.delete(it)) { ok++; freed += it.sizeBytes } else fail++
+                val deleted = if (scanner.delete(it)) true
+                else if (rooted) PrivilegeManager.deleteAsRoot(it.path) else false
+                if (deleted) { ok++; freed += it.sizeBytes } else fail++
             }
             withContext(Dispatchers.Main) {
-                updateStatus("Limpeza concluída: $ok removidos, $fail falharam.\nLiberado ~${formatBytes(freed)}")
-                lastScan = emptyList()
+                showProgress(false)
+                fullScan = fullScan - items.toSet()
+                updateStatus("✅ Limpeza concluída: $ok removidos" +
+                        (if (fail > 0) ", $fail sem acesso" else "") +
+                        ".\nLiberado ~${formatBytes(freed)}." +
+                        (if (fail > 0) "\nDica: a Limpeza profunda (root) alcança o restante." else ""))
             }
         }
     }
 
+    // ---------- Fluxos específicos ----------
+
     private fun runDuplicates() {
-        updateStatus("Procurando duplicados (hash)...")
+        showProgress(true, "Comparando arquivos (hash)...")
         lifecycleScope.launch(Dispatchers.IO) {
             val finder = DuplicateFinder()
             val groups = finder.find { n ->
-                if (n % 2000 == 0) lifecycleScope.launch(Dispatchers.Main) { updateStatus("Duplicados... $n arquivos") }
+                if (n % 3000 == 0) lifecycleScope.launch(Dispatchers.Main) {
+                    updateStatus("Comparando... $n arquivos")
+                }
             }
             val items = finder.toJunkItems(groups)
-            lastScan = items
-            val wasted = groups.sumOf { it.wastedBytes() }
+            fullScan = (fullScan.filter { it.category != JunkCategory.DUPLICATES } + items)
             withContext(Dispatchers.Main) {
+                showProgress(false)
                 if (groups.isEmpty()) { updateStatus("Nenhum duplicado encontrado."); return@withContext }
-                val sb = StringBuilder("Grupos: ${groups.size}, desperdício ~${formatBytes(wasted)}\n\n")
-                groups.take(15).forEach { g ->
-                    sb.append("• ${formatBytes(g.size)} x${g.files.size}: ${g.files.first().name}\n")
-                    g.files.drop(1).take(2).forEach { f -> sb.append("    - ${f.absolutePath}\n") }
+                val sb = StringBuilder("📑 ${groups.size} grupos, ~${formatBytes(groups.sumOf { it.wastedBytes() })} repetidos.\n" +
+                        "Mantemos sempre 1 cópia.\n\n")
+                groups.take(12).forEach { g ->
+                    sb.append("• ${formatBytes(g.size)} ×${g.files.size}: ${g.files.first().name}\n")
                 }
-                sb.append("\nToque LIMPAR para manter 1 cópia de cada e apagar o resto.")
+                sb.append("\nToque em LIMPAR para apagar as cópias extras.")
                 updateStatus(sb.toString())
             }
         }
     }
 
     private fun runWhats() {
-        val names = WhatsAppCleaner.categories.map { "${it.label}\n(${it.hint})" }.toTypedArray()
-        val checked = booleanArrayOf(true, true, true, true, false, false, false)
+        val names = WhatsAppCleaner.categories.map {
+            "${if (it.safe) "✅" else "⚠️"} ${it.label}\n${it.hint}"
+        }.toTypedArray()
+        val checkedArr = WhatsAppCleaner.categories.map { it.safe }.toBooleanArray()
         MaterialAlertDialogBuilder(this)
-            .setTitle("Lixo do WhatsApp — escolher")
-            .setMultiChoiceItems(names, checked) { _, which, isChecked -> checked[which] = isChecked }
+            .setTitle("WhatsApp — o que procurar")
+            .setMultiChoiceItems(names, checkedArr) { _, which, v -> checkedArr[which] = v }
             .setPositiveButton("Varrer") { _, _ ->
-                val ids = WhatsAppCleaner.categories.filterIndexed { i, _ -> checked[i] }.map { it.id }.toSet()
+                val ids = WhatsAppCleaner.categories
+                    .filterIndexed { i, _ -> checkedArr[i] }.map { it.id }.toSet()
+                showProgress(true, "Varrendo WhatsApp...")
                 lifecycleScope.launch(Dispatchers.IO) {
                     val items = WhatsAppCleaner.scan(ids)
-                    lastScan = items
+                    fullScan = (fullScan.filter { it.category != JunkCategory.WHATSAPP_JUNK } + items)
                     withContext(Dispatchers.Main) {
-                        updateStatus("WhatsApp: ${items.size} itens (${formatBytes(items.sumOf { it.sizeBytes })})\nToque LIMPAR para remover.")
+                        showProgress(false)
+                        findViewById<CheckBox>(R.id.cbWhats).isChecked = items.isNotEmpty()
+                        updateStatus("💬 WhatsApp: ${items.size} itens (${formatBytes(items.sumOf { it.sizeBytes })}).\n" +
+                                "Marque a caixa do WhatsApp e toque em LIMPAR.")
                     }
                 }
             }
@@ -203,105 +247,18 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
-    private fun runBoost() {
-        lifecycleScope.launch(Dispatchers.IO) {
-            val before = ramCpu.ram()
-            val cpu = try { ramCpu.cpu() } catch (_: Exception) { null }
-            val top = try { ramCpu.topProcesses() } catch (_: Exception) { emptyList() }
-            val res = try { ramCpu.optimize() } catch (_: Exception) { null }
-            withContext(Dispatchers.Main) {
-                val sb = StringBuilder()
-                sb.append("RAM: ${before.usedPct}% em uso (${before.usedMb}/${before.totalMb} MB)\n")
-                if (cpu?.usagePct != null) sb.append("CPU: ${String.format("%.0f", cpu.usagePct)}% (${cpu.cores} núcleos)\n")
-                if (top.isNotEmpty()) {
-                    sb.append("\nTop processos:\n")
-                    top.take(5).forEach { sb.append("• ${it.name} — ${it.pssKb / 1024} MB (${it.importance})\n") }
-                }
-                if (res != null) sb.append("\nBoost: ${res.killed} em 2º plano encerrados, +${res.freedMb} MB livres.")
-                sb.append("\n\nNota: Android gerencia RAM sozinho; boost ajuda pontualmente, não faz milagre.")
-                updateStatus(sb.toString())
-            }
-        }
-    }
-
-    private fun showBattery() {
-        lifecycleScope.launch(Dispatchers.IO) {
-            val info = battery.read()
-            val tips = battery.tips(info)
-            withContext(Dispatchers.Main) {
-                AlertDialog.Builder(this@MainActivity)
-                    .setTitle("Bateria ${info.pct}% • ${info.chargeType}")
-                    .setMessage("Temp: ${info.tempC}°C\nTensão: ${info.voltageMv} mV\nSaúde: ${info.health}\nEconomia: ${if (info.saverOn) "ATIVA" else "desligada"}\n\n${tips.joinToString("\n\n")}")
-                    .setPositiveButton("OK", null)
-                    .show()
-            }
-        }
-    }
-
-    private fun runDiag() {
-        lifecycleScope.launch(Dispatchers.IO) {
-            val list = diagnostics.runAll()
-            withContext(Dispatchers.Main) {
-                updateStatus(list.joinToString("\n\n") { "${if (it.ok) "✅" else "⚠️"} ${it.name}\n${it.detail}" })
-            }
-        }
-    }
-
-    private fun showApps() {
-        lifecycleScope.launch(Dispatchers.IO) {
-            val apps = appManager.listInstalled(false, 100)
-            withContext(Dispatchers.Main) {
-                if (apps.isEmpty()) { toast("Lista vazia (permissão?)"); return@withContext }
-                val labels = apps.take(30).map { "${it.label} — ${formatBytes(it.sizeBytes)}${it.lastUsedAgo?.let { u -> " • $u" } ?: ""}" }.toTypedArray()
-                MaterialAlertDialogBuilder(this@MainActivity)
-                    .setTitle("Maiores apps (top 30)")
-                    .setItems(labels) { _, which ->
-                        val app = apps[which]
-                        MaterialAlertDialogBuilder(this@MainActivity)
-                            .setTitle(app.label)
-                            .setMessage("${app.packageName}\nv${app.version}\n${formatBytes(app.sizeBytes)}\nÚltimo uso: ${app.lastUsedAgo ?: "?"}")
-                            .setPositiveButton("Abrir detalhes") { _, _ -> startActivity(appManager.openAppDetails(app.packageName)) }
-                            .setNeutralButton("Play Store") { _, _ -> startActivity(appManager.openPlayStore(app.packageName)) }
-                            .setNegativeButton("Desinstalar") { _, _ -> startActivity(appManager.uninstall(app.packageName)) }
-                            .show()
-                    }
-                    .show()
-                updateStatus("Top app: ${apps.firstOrNull()?.label} (${apps.firstOrNull()?.let { formatBytes(it.sizeBytes) }})")
-            }
-        }
-    }
-
-    private fun updateStatus(s: String) {
-        findViewById<android.widget.TextView>(R.id.txtStatus).text = s
-    }
-
     private fun runDeepClean() {
         lifecycleScope.launch(Dispatchers.IO) {
-            val apps = try { appManager.listInstalled(false, 50).map { it.packageName } } catch (_: Exception) { emptyList() }
-            val shizukuOk = try { ShizukuHelper.isInstalled(this@MainActivity) && ShizukuHelper.isPermissionGranted() } catch (_: Exception) { false }
+            val pkgs = PrivilegeManager.installedPackages(this@MainActivity)
+            val desc = PrivilegeManager.describe()
             withContext(Dispatchers.Main) {
                 MaterialAlertDialogBuilder(this@MainActivity)
-                    .setTitle("Limpeza profunda")
-                    .setMessage(
-                        "Shizuku: ${if (ShizukuHelper.isInstalled(this@MainActivity)) "instalado" else "não instalado"} / " +
-                        "${if (shizukuOk) "autorizado" else "não autorizado"}\n\n" +
-                        "• Com Shizuku: trim-caches automático de todos os apps.\n" +
-                        "• Com Acessibilidade: abre telas e clica 'Limpar cache'.\n" +
-                        "• Sem nada: abre telas para você limpar manual (15 apps maiores)."
-                    )
+                    .setTitle("🚀 Limpeza profunda")
+                    .setMessage("$desc\n\nLimpa o cache de TODOS os apps de uma vez.\n" +
+                            "• Com root: automático e total.\n" +
+                            "• Sem root: abre a tela de cada app para você confirmar (até 15 por vez).")
                     .setPositiveButton("Iniciar") { _, _ ->
-                        if (!shizukuOk && !ShizukuHelper.isInstalled(this@MainActivity)) {
-                            // oferece pedir permissão Shizuku se instalado, senão segue guiada
-                        }
-                        if (!shizukuOk && ShizukuHelper.isInstalled(this@MainActivity)) {
-                            try { ShizukuHelper.requestPermission() } catch (_: Exception) {}
-                            toast("Autorize no Shizuku e toque Iniciar de novo")
-                            return@setPositiveButton
-                        }
-                        DeepCleanOrchestrator.start(this@MainActivity, appManager, apps)
-                    }
-                    .setNeutralButton("Como instalar Shizuku") { _, _ ->
-                        toast("Instale Shizuku + ative via ADB/Wi-Fi (shizuku.rikka.app)")
+                        DeepCleanOrchestrator.start(this@MainActivity, pkgs)
                     }
                     .setNegativeButton("Cancelar", null)
                     .show()
@@ -309,15 +266,50 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // ---------- Utilidades ----------
+
+    private fun showBattery() {
+        lifecycleScope.launch(Dispatchers.IO) {
+            val info = battery.read()
+            val tips = battery.tips(info)
+            withContext(Dispatchers.Main) {
+                AlertDialog.Builder(this@MainActivity)
+                    .setTitle("🔋 Bateria ${info.pct}% • ${info.chargeType}")
+                    .setMessage("Temperatura: ${info.tempC}°C\nSaúde: ${info.health}\nEconomia: ${if (info.saverOn) "ativa" else "desligada"}\n\n${tips.joinToString("\n\n")}")
+                    .setPositiveButton("OK", null)
+                    .show()
+            }
+        }
+    }
+
+    private fun runDiag() {
+        showProgress(true, "Verificando aparelho...")
+        lifecycleScope.launch(Dispatchers.IO) {
+            val list = diagnostics.runAll()
+            withContext(Dispatchers.Main) {
+                showProgress(false)
+                updateStatus(list.joinToString("\n\n") { "${if (it.ok) "✅" else "⚠️"} ${it.name}\n${it.detail}" })
+            }
+        }
+    }
+
+    private fun exportReport() {
+        lifecycleScope.launch(Dispatchers.IO) {
+            val status = runCatching { findViewById<TextView>(R.id.txtStatus).text.toString() }.getOrDefault("")
+            val msg = ReportExporter.export(this@MainActivity, ReportExporter.buildReport(status))
+            withContext(Dispatchers.Main) { toast(msg) }
+        }
+    }
+
     private fun toggleSchedule() {
         MaterialAlertDialogBuilder(this)
-            .setTitle("Varredura semanal")
-            .setMessage("Agenda notificação semanal com total de lixo (nunca apaga sozinho). Requer NOTIFICAÇÕES no Android 13+.")
-            .setPositiveButton("Ativar semanal") { _, _ ->
+            .setTitle("⏰ Varredura semanal")
+            .setMessage("Avisa 1x por semana quanto lixo encontrou. Nunca apaga sozinho.")
+            .setPositiveButton("Ativar") { _, _ ->
                 if (Build.VERSION.SDK_INT >= 33 &&
-                    ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                    ContextCompat.checkSelfPermission(this, android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
                 ) {
-                    if (Build.VERSION.SDK_INT >= 33) permLauncher.launch(arrayOf(Manifest.permission.POST_NOTIFICATIONS))
+                    permLauncher.launch(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS))
                 }
                 ScheduledCleanWorker.scheduleWeekly(this)
                 toast("Agendada: 1x por semana")
@@ -330,20 +322,31 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
-    private fun exportReport() {
-        lifecycleScope.launch(Dispatchers.IO) {
-            val status = try { findViewById<android.widget.TextView>(R.id.txtStatus).text.toString() } catch (_: Exception) { "" }
-            val report = ReportExporter.buildReport(status)
-            val msg = ReportExporter.export(this@MainActivity, report)
-            withContext(Dispatchers.Main) { toast(msg); updateStatus("$status\n\n$msg") }
+    private fun requestInitialPermissions() {
+        val needed = PermissionHelper.storagePermissions().filter {
+            ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
+        }.toTypedArray()
+        if (needed.isNotEmpty() && Build.VERSION.SDK_INT >= 23) permLauncher.launch(needed)
+        if (VersionCompat.needsAllFilesAccess() && !PermissionHelper.hasAllFilesAccess()) {
+            MaterialAlertDialogBuilder(this)
+                .setTitle("Acesso total (opcional)")
+                .setMessage("No Android 11+, a varredura completa precisa de 'Acesso a todos os arquivos'. Sem isso, limpamos o acessível. Abrir a tela agora?")
+                .setPositiveButton("Abrir") { _, _ ->
+                    try { startActivity(PermissionHelper.intentAllFilesAccess()) } catch (_: Exception) {}
+                }
+                .setNegativeButton("Depois", null)
+                .show()
         }
     }
 
-    private fun toast(s: String) = Toast.makeText(this, s, Toast.LENGTH_SHORT).show()
-
-    @Suppress("DEPRECATION")
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: android.content.Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode == 5001) toast("Verificação de update concluída")
+    private fun showProgress(show: Boolean, msg: String = "") {
+        findViewById<ProgressBar>(R.id.progressBar).visibility = if (show) View.VISIBLE else View.GONE
+        if (show && msg.isNotBlank()) updateStatus(msg)
     }
+
+    private fun updateStatus(s: String) {
+        findViewById<TextView>(R.id.txtStatus).text = s
+    }
+
+    private fun toast(s: String) = Toast.makeText(this, s, Toast.LENGTH_SHORT).show()
 }
